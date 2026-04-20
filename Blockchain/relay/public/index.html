@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blockchain IoT Dashboard — Temperature Logger</title>
+  <meta name="description" content="Live dashboard for monitoring Raspberry Pi Pico W temperature readings recorded on the Hardhat blockchain." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Design tokens ──────────────────────────────────────── */
+    :root {
+      --bg-base:      #050b18;
+      --bg-surface:   #0b1628;
+      --bg-card:      #0f1e35;
+      --bg-card-2:    #132540;
+      --accent-blue:  #3b82f6;
+      --accent-cyan:  #06b6d4;
+      --accent-green: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-red:   #ef4444;
+      --accent-purple:#a855f7;
+      --text-primary: #f1f5f9;
+      --text-muted:   #64748b;
+      --text-dim:     #94a3b8;
+      --border:       rgba(59,130,246,0.18);
+      --glow-blue:    rgba(59,130,246,0.25);
+      --glow-cyan:    rgba(6,182,212,0.2);
+      --glow-green:   rgba(16,185,129,0.2);
+      --radius-sm:    8px;
+      --radius-md:    14px;
+      --radius-lg:    20px;
+      --font-mono:    'JetBrains Mono', monospace;
+    }
+
+    /* ── Reset & base ────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated background grid ──────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      top: -40%;
+      left: -20%;
+      width: 80%;
+      height: 80%;
+      background: radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+      animation: pulse-bg 8s ease-in-out infinite alternate;
+    }
+
+    @keyframes pulse-bg {
+      from { opacity: 0.5; transform: scale(1); }
+      to   { opacity: 1;   transform: scale(1.15); }
+    }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    .app-wrapper {
+      position: relative;
+      z-index: 1;
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 28px 24px 60px;
+    }
+
+    /* ── Header ──────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 36px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 16px; }
+
+    .logo-icon {
+      width: 52px; height: 52px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px;
+      box-shadow: 0 0 28px var(--glow-blue);
+      flex-shrink: 0;
+    }
+
+    .header-title h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      background: linear-gradient(90deg, #f1f5f9, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.2;
+    }
+
+    .header-title p {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+      letter-spacing: 0.04em;
+    }
+
+    .status-badge {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 8px 16px;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: blink-status 2s ease-in-out infinite;
+    }
+
+    .status-dot.warning { background: var(--accent-amber); box-shadow: 0 0 8px var(--accent-amber); }
+    .status-dot.error   { background: var(--accent-red);   box-shadow: 0 0 8px var(--accent-red);   animation: none; }
+
+    @keyframes blink-status {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    /* ── Stats row ───────────────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .stat-card:hover { border-color: rgba(59,130,246,0.4); box-shadow: 0 0 24px var(--glow-blue); }
+    .stat-card:hover::before { opacity: 1; }
+
+    .stat-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .stat-value {
+      font-size: 2.2rem;
+      font-weight: 800;
+      line-height: 1;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-value.mono { font-family: var(--font-mono); font-size: 1.6rem; }
+    .stat-value.blue  { color: var(--accent-blue); }
+    .stat-value.cyan  { color: var(--accent-cyan); }
+    .stat-value.green { color: var(--accent-green); }
+    .stat-value.amber { color: var(--accent-amber); }
+
+    .stat-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    /* Number pop animation */
+    @keyframes num-pop {
+      0%  { transform: scale(1.4); color: var(--accent-cyan); }
+      100%{ transform: scale(1);   color: inherit; }
+    }
+    .pop { animation: num-pop 0.5s ease-out forwards; }
+
+    /* ── Main content grid ─────────────────────────────────── */
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      gap: 24px;
+    }
+
+    @media (max-width: 1000px) {
+      .content-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Panel base ──────────────────────────────────────────── */
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(90deg, var(--bg-card-2), transparent);
+    }
+
+    .panel-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .panel-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(59,130,246,0.15);
+      color: var(--accent-blue);
+      border: 1px solid rgba(59,130,246,0.3);
+      font-family: var(--font-mono);
+    }
+
+    /* ── Live gauge / thermometer ────────────────────────────── */
+    .gauge-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 24px;
+      gap: 24px;
+    }
+
+    .thermo-container {
+      position: relative;
+      width: 100px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .thermo-tube {
+      width: 28px;
+      height: 200px;
+      background: rgba(255,255,255,0.05);
+      border: 2px solid rgba(255,255,255,0.12);
+      border-radius: 14px 14px 0 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .thermo-fill {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: linear-gradient(to top, #ef4444, #f59e0b, #10b981, #3b82f6);
+      border-radius: 12px 12px 0 0;
+      height: 50%;
+      transition: height 1.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .thermo-bulb {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #ef4444, #b91c1c);
+      border: 2px solid rgba(255,255,255,0.12);
+      box-shadow: 0 0 20px rgba(239,68,68,0.4);
+      flex-shrink: 0;
+      transition: background 1s, box-shadow 1s;
+    }
+
+    .thermo-scale {
+      position: absolute;
+      right: -40px;
+      top: 0; bottom: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .temp-display {
+      text-align: center;
+    }
+
+    .temp-large {
+      font-size: 3.8rem;
+      font-weight: 800;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      font-family: var(--font-mono);
+      background: linear-gradient(135deg, #fff 30%, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .temp-unit {
+      font-size: 1.8rem;
+      vertical-align: super;
+      font-weight: 300;
+    }
+
+    .temp-secondary {
+      font-size: 1rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .temp-status {
+      font-size: 0.78rem;
+      padding: 4px 14px;
+      border-radius: 999px;
+      background: rgba(16,185,129,0.12);
+      color: var(--accent-green);
+      border: 1px solid rgba(16,185,129,0.25);
+      font-weight: 600;
+    }
+
+    /* ── Chart panel ─────────────────────────────────────────── */
+    .chart-wrapper {
+      padding: 20px 20px 16px;
+      height: 280px;
+      position: relative;
+    }
+
+    canvas#tempChart {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* ── Feed panel ──────────────────────────────────────────── */
+    .feed-list {
+      max-height: 400px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .feed-list::-webkit-scrollbar { width: 4px; }
+    .feed-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .feed-empty {
+      padding: 48px 24px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .feed-empty .empty-icon { font-size: 2.4rem; margin-bottom: 12px; }
+
+    .feed-item {
+      padding: 14px 20px;
+      border-bottom: 1px solid rgba(59,130,246,0.07);
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: start;
+      cursor: default;
+      transition: background 0.2s;
+      animation: slide-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateX(-20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .feed-item:hover { background: rgba(59,130,246,0.05); }
+    .feed-item:last-child { border-bottom: none; }
+
+    .feed-index {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      background: rgba(59,130,246,0.1);
+      border-radius: 4px;
+      padding: 2px 6px;
+      align-self: center;
+    }
+
+    .feed-body { min-width: 0; }
+
+    .feed-temp {
+      font-size: 1.05rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+    }
+
+    .feed-meta {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .feed-tx {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--accent-blue);
+      opacity: 0.7;
+    }
+
+    .feed-block {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent-cyan);
+      font-weight: 600;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .feed-block small {
+      display: block;
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    /* ── Chain visualizer ────────────────────────────────────── */
+    .chain-strip {
+      padding: 20px 20px 24px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+
+    .chain-scroll { display: flex; gap: 0; align-items: center; min-width: max-content; }
+
+    .block-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      animation: block-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes block-pop {
+      from { opacity: 0; transform: scale(0.5) translateY(20px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .block-box {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, var(--bg-card-2), var(--bg-surface));
+      border: 1.5px solid rgba(59,130,246,0.3);
+      border-radius: var(--radius-sm);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: var(--text-dim);
+      padding: 6px;
+      gap: 2px;
+      position: relative;
+      transition: box-shadow 0.3s;
+      cursor: default;
+    }
+
+    .block-box:hover {
+      box-shadow: 0 0 20px rgba(59,130,246,0.35);
+      border-color: var(--accent-blue);
+    }
+
+    .block-box.genesis {
+      border-color: rgba(168,85,247,0.5);
+      background: linear-gradient(135deg, rgba(168,85,247,0.1), var(--bg-surface));
+    }
+
+    .block-box.latest {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 18px rgba(6,182,212,0.3);
+    }
+
+    .block-num {
+      font-size: 0.58rem;
+      color: var(--text-muted);
+    }
+
+    .block-temp {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+
+    .block-time {
+      font-size: 0.52rem;
+      color: var(--text-muted);
+    }
+
+    .block-icon { font-size: 1rem; }
+
+    .chain-link {
+      width: 28px;
+      height: 2px;
+      background: linear-gradient(90deg, rgba(59,130,246,0.4), rgba(6,182,212,0.4));
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .chain-link::before, .chain-link::after {
+      content: '▶';
+      position: absolute;
+      top: 50%;
+      font-size: 0.5rem;
+      color: rgba(6,182,212,0.5);
+      transform: translateY(-50%);
+    }
+    .chain-link::before { left: 4px; }
+    .chain-link::after  { right: 4px; display: none; }
+
+    /* ── Contract details panel ───────────────────────────────── */
+    .contract-info {
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .info-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .info-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .info-value {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      word-break: break-all;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+    }
+
+    .info-value.highlight { color: var(--accent-blue); }
+
+    /* ── Notification toast ───────────────────────────────────── */
+    #toast-container {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--bg-card-2);
+      border: 1px solid rgba(16,185,129,0.4);
+      border-radius: var(--radius-md);
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 280px;
+      max-width: 380px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      animation: toast-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: auto;
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateX(40px) scale(0.9); }
+      to   { opacity: 1; transform: translateX(0) scale(1); }
+    }
+
+    @keyframes toast-out {
+      to { opacity: 0; transform: translateX(40px); }
+    }
+
+    .toast-icon { font-size: 1.4rem; flex-shrink: 0; }
+    .toast-body { flex: 1; min-width: 0; }
+    .toast-title { font-size: 0.82rem; font-weight: 700; color: var(--accent-green); }
+    .toast-msg   { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; font-family: var(--font-mono); }
+
+    /* ── Simulation button (for demo without physical Pico) ───── */
+    .sim-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(59,130,246,0.4);
+      background: rgba(59,130,246,0.1);
+      color: var(--accent-blue);
+      font-size: 0.82rem;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .sim-btn:hover {
+      background: rgba(59,130,246,0.2);
+      box-shadow: 0 0 16px var(--glow-blue);
+    }
+
+    .sim-btn:active { transform: scale(0.97); }
+
+    .sim-btn.running {
+      border-color: rgba(16,185,129,0.4);
+      background: rgba(16,185,129,0.1);
+      color: var(--accent-green);
+    }
+
+    /* ── Responsive tweaks ────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .stats-row { grid-template-columns: 1fr 1fr; }
+      .temp-large { font-size: 2.8rem; }
+      .app-wrapper { padding: 16px 12px 40px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-wrapper">
+
+    <!-- Header -->
+    <header>
+      <div class="header-left">
+        <div class="logo-icon">⛓️</div>
+        <div class="header-title">
+          <h1>Blockchain IoT Dashboard</h1>
+          <p>Raspberry Pi Pico W · Hardhat Local Network · Real-time Ledger</p>
+        </div>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <div class="status-badge" id="connection-status">
+          <div class="status-dot warning" id="status-dot"></div>
+          <span id="status-text">Connecting…</span>
+        </div>
+        <button class="sim-btn" id="sim-btn" onclick="toggleSimulator()">
+          ▶ Simulate Pico W
+        </button>
+      </div>
+    </header>
+
+    <!-- Stats Row -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">🌡️ Latest Temp</div>
+        <div class="stat-value blue mono" id="stat-latest-c">--.-</div>
+        <div class="stat-sub" id="stat-latest-f">Awaiting reading…</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📦 Total On-Chain</div>
+        <div class="stat-value green" id="stat-total">0</div>
+        <div class="stat-sub">confirmed readings</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">⛏️ Current Block</div>
+        <div class="stat-value cyan mono" id="stat-block">#----</div>
+        <div class="stat-sub">Hardhat local chain</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📡 Device ID</div>
+        <div class="stat-value mono" id="stat-device" style="font-size:1.1rem; margin-top:4px;">---</div>
+        <div class="stat-sub" id="stat-contract" style="word-break:break-all; font-family: var(--font-mono)">loading…</div>
+      </div>
+    </div>
+
+    <!-- Main grid -->
+    <div class="content-grid">
+
+      <!-- Left: chart + chain strip -->
+      <div style="display:flex; flex-direction:column; gap:20px;">
+
+        <!-- Live gauge + chart -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">📈 Temperature Over Time</span>
+            <span class="panel-badge" id="reading-count-badge">0 readings</span>
+          </div>
+          <div style="display:flex; align-items:stretch; gap:0;">
+
+            <!-- Thermometer gauge -->
+            <div class="gauge-panel" style="min-width:160px; border-right:1px solid var(--border);">
+              <div class="thermo-container">
+                <div class="thermo-tube">
+                  <div class="thermo-fill" id="thermo-fill"></div>
+                </div>
+                <div class="thermo-bulb" id="thermo-bulb"></div>
+                <div class="thermo-scale">
+                  <span>50°</span>
+                  <span>40°</span>
+                  <span>30°</span>
+                  <span>20°</span>
+                  <span>10°</span>
+                  <span>0°</span>
+                </div>
+              </div>
+              <div class="temp-display">
+                <div class="temp-large" id="gauge-temp-c">--<span class="temp-unit">°C</span></div>
+                <div class="temp-secondary" id="gauge-temp-f">-- °F</div>
+                <div class="temp-status" id="temp-status-label">No reading</div>
+              </div>
+            </div>
+
+            <!-- Chart -->
+            <div class="chart-wrapper" style="flex:1;">
+              <canvas id="tempChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chain visualizer -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">⛓️ Block Chain Visualizer</span>
+            <span class="panel-badge" id="chain-blocks-badge">genesis</span>
+          </div>
+          <div class="chain-strip" id="chain-strip">
+            <div class="chain-scroll" id="chain-scroll">
+              <!-- genesis block -->
+              <div class="block-node">
+                <div class="block-box genesis">
+                  <span class="block-icon">🔷</span>
+                  <span class="block-num">#0</span>
+                  <span style="font-size:0.55rem; color:var(--accent-purple);">GENESIS</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right: live feed + contract info -->
+      <div style="display:flex; flex-direction:column; gap:20px;">
+
+        <!-- Live transaction feed -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">📡 Live TX Feed</span>
+            <span class="panel-badge" id="feed-count-badge">0 txs</span>
+          </div>
+          <div class="feed-list" id="feed-list">
+            <div class="feed-empty" id="feed-empty">
+              <div class="empty-icon">📭</div>
+              Waiting for readings from Pico W…
+            </div>
+          </div>
+        </div>
+
+        <!-- Contract details -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">📝 Contract Details</span>
+          </div>
+          <div class="contract-info">
+            <div class="info-row">
+              <span class="info-label">Contract Address</span>
+              <div class="info-value highlight" id="info-contract">Loading…</div>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Network</span>
+              <div class="info-value">Hardhat Local — Chain ID 31337</div>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Relay Signer</span>
+              <div class="info-value" id="info-signer">Loading…</div>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Device ID</span>
+              <div class="info-value" id="info-device">Loading…</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- /.app-wrapper -->
+
+  <div id="toast-container"></div>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <script>
+    // ─── Chart setup ─────────────────────────────────────────────────────────
+    const ctx = document.getElementById('tempChart').getContext('2d');
+
+    const chartData = {
+      labels: [],
+      datasets: [{
+        label: 'Temperature (°C)',
+        data: [],
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.08)',
+        borderWidth: 2.5,
+        pointRadius: 4,
+        pointBackgroundColor: '#06b6d4',
+        pointBorderColor: '#0f1e35',
+        pointBorderWidth: 2,
+        tension: 0.4,
+        fill: true,
+      }],
+    };
+
+    const tempChart = new Chart(ctx, {
+      type: 'line',
+      data: chartData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 600, easing: 'easeOutQuart' },
+        scales: {
+          x: {
+            grid:   { color: 'rgba(59,130,246,0.06)' },
+            ticks:  { color: '#64748b', font: { size: 10, family: 'JetBrains Mono' }, maxRotation: 0 },
+          },
+          y: {
+            grid:   { color: 'rgba(59,130,246,0.06)' },
+            ticks:  { color: '#64748b', font: { size: 10, family: 'JetBrains Mono' },
+                      callback: v => v.toFixed(1) + '°C' },
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0f1e35',
+            borderColor: 'rgba(59,130,246,0.3)',
+            borderWidth: 1,
+            titleColor: '#94a3b8',
+            bodyColor: '#f1f5f9',
+            callbacks: {
+              label: ctx => ` ${ctx.parsed.y.toFixed(2)}°C`,
+            },
+          },
+        },
+      },
+    });
+
+    // ─── State ───────────────────────────────────────────────────────────────
+    let allReadings   = [];
+    let simulatorInt  = null;
+    let isSimRunning  = false;
+    let statusInfo    = {};
+
+    // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    function formatTime(ts) {
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function formatTimeShort(ts) {
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' });
+    }
+
+    function truncateTx(hash) {
+      return hash ? hash.slice(0, 8) + '…' + hash.slice(-6) : '---';
+    }
+
+    function tempColor(c) {
+      const t = parseFloat(c);
+      if (t < 10)   return '#3b82f6';
+      if (t < 20)   return '#06b6d4';
+      if (t < 28)   return '#10b981';
+      if (t < 36)   return '#f59e0b';
+      return '#ef4444';
+    }
+
+    function tempLabel(c) {
+      const t = parseFloat(c);
+      if (t < 10)   return '❄️ Cold';
+      if (t < 20)   return '🌬️ Cool';
+      if (t < 28)   return '✅ Normal';
+      if (t < 36)   return '⚠️ Warm';
+      return '🔥 Hot';
+    }
+
+    function thermoHeight(c) {
+      const t = parseFloat(c);
+      const pct = Math.min(100, Math.max(2, ((t - 0) / 50) * 100));
+      return pct;
+    }
+
+    function popEl(el) {
+      el.classList.remove('pop');
+      void el.offsetWidth;
+      el.classList.add('pop');
+    }
+
+    // ─── Update UI from a reading object ──────────────────────────────────────
+
+    function applyReading(r) {
+      const tc = parseFloat(r.tempC);
+      const tf = parseFloat(r.tempF !== undefined ? r.tempF : ((tc * 9 / 5) + 32));
+
+      // Stats
+      const latestC = document.getElementById('stat-latest-c');
+      latestC.textContent = tc.toFixed(2) + ' °C';
+      popEl(latestC);
+      document.getElementById('stat-latest-f').textContent = tf.toFixed(2) + ' °F';
+
+      // Gauge
+      document.getElementById('gauge-temp-c').innerHTML =
+        tc.toFixed(1) + '<span class="temp-unit">°C</span>';
+      document.getElementById('gauge-temp-f').textContent = tf.toFixed(1) + ' °F';
+      document.getElementById('thermo-fill').style.height = thermoHeight(tc) + '%';
+
+      const label = tempLabel(tc);
+      const color = tempColor(tc);
+      const statusEl = document.getElementById('temp-status-label');
+      statusEl.textContent = label;
+      statusEl.style.color = color;
+      statusEl.style.borderColor = color + '55';
+      statusEl.style.background  = color + '18';
+
+      const bulb = document.getElementById('thermo-bulb');
+      bulb.style.background  = `linear-gradient(135deg, ${color}, ${color}aa)`;
+      bulb.style.boxShadow   = `0 0 20px ${color}55`;
+    }
+
+    // ─── Feed ─────────────────────────────────────────────────────────────────
+
+    function prependFeedItem(reading, index) {
+      const el = document.getElementById('feed-empty');
+      if (el) el.remove();
+
+      const item = document.createElement('div');
+      item.className = 'feed-item';
+      const tc  = parseFloat(reading.tempC);
+      const tf  = parseFloat(reading.tempF !== undefined ? reading.tempF : ((tc*9/5)+32));
+      const col = tempColor(tc);
+
+      item.innerHTML = `
+        <div class="feed-index">#${index}</div>
+        <div class="feed-body">
+          <div class="feed-temp" style="color:${col}">${tc.toFixed(2)} °C &nbsp;/&nbsp; ${tf.toFixed(2)} °F</div>
+          <div class="feed-meta">
+            ${reading.deviceId || statusInfo.deviceId || 'pico-w-001'}
+            &nbsp;·&nbsp;
+            ${formatTime(reading.timestamp || Math.floor(Date.now()/1000))}
+          </div>
+          ${reading.txHash ? `<div class="feed-tx">tx: ${truncateTx(reading.txHash)}</div>` : ''}
+        </div>
+        <div class="feed-block">
+          ${reading.block ? '#' + reading.block : ''}
+          <small>${reading.block ? 'block' : ''}</small>
+        </div>`;
+
+      const list = document.getElementById('feed-list');
+      list.prepend(item);
+
+      // Trim to 30
+      while (list.children.length > 30) list.removeChild(list.lastChild);
+
+      // Badge
+      document.getElementById('feed-count-badge').textContent =
+        list.children.length + ' txs';
+    }
+
+    // ─── Chart update ─────────────────────────────────────────────────────────
+
+    function addChartPoint(ts, tc) {
+      const label = formatTimeShort(ts);
+      chartData.labels.push(label);
+      chartData.datasets[0].data.push(parseFloat(tc));
+      if (chartData.labels.length > 30) {
+        chartData.labels.shift();
+        chartData.datasets[0].data.shift();
+      }
+      tempChart.update();
+    }
+
+    // ─── Chain strip ──────────────────────────────────────────────────────────
+
+    let chainCount = 0;
+
+    function addChainBlock(tc, blockNum, ts) {
+      chainCount++;
+      const scroll = document.getElementById('chain-scroll');
+
+      // Link arrow
+      const link = document.createElement('div');
+      link.className = 'chain-link';
+      scroll.appendChild(link);
+
+      // Block node
+      const node = document.createElement('div');
+      node.className = 'block-node';
+      const color = tempColor(tc);
+
+      // Remove 'latest' from previous
+      const prev = scroll.querySelector('.block-box.latest');
+      if (prev) prev.classList.remove('latest');
+
+      node.innerHTML = `
+        <div class="block-box latest" title="Block #${blockNum || '?'} — ${tc}°C at ${formatTime(ts)}">
+          <span class="block-icon">🧊</span>
+          <span class="block-num">#${blockNum || chainCount}</span>
+          <span class="block-temp" style="color:${color}">${parseFloat(tc).toFixed(1)}°</span>
+          <span class="block-time">${formatTimeShort(ts)}</span>
+        </div>`;
+      scroll.appendChild(node);
+
+      // Auto-scroll chain strip right
+      const strip = document.getElementById('chain-strip');
+      strip.scrollLeft = strip.scrollWidth;
+
+      document.getElementById('chain-blocks-badge').textContent =
+        chainCount + ' block' + (chainCount !== 1 ? 's' : '');
+    }
+
+    // ─── Toast ────────────────────────────────────────────────────────────────
+
+    function showToast(title, msg) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.innerHTML = `
+        <span class="toast-icon">✅</span>
+        <div class="toast-body">
+          <div class="toast-title">${title}</div>
+          <div class="toast-msg">${msg}</div>
+        </div>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.animation = 'toast-out 0.3s forwards';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // ─── SSE — live feed from relay ─────────────────────────────────────────
+
+    let sseConnected = false;
+
+    function connectSSE() {
+      const es = new EventSource('/events');
+
+      es.onopen = () => {
+        sseConnected = true;
+        document.getElementById('status-dot').className = 'status-dot';
+        document.getElementById('status-text').textContent = 'Live — connected';
+      };
+
+      es.onmessage = (ev) => {
+        const r = JSON.parse(ev.data);
+        const idx = allReadings.length;
+        allReadings.push(r);
+
+        applyReading(r);
+        addChartPoint(r.timestamp || Math.floor(Date.now()/1000), r.tempC);
+        prependFeedItem(r, idx);
+        addChainBlock(r.tempC, r.block, r.timestamp || Math.floor(Date.now()/1000));
+
+        const total = document.getElementById('stat-total');
+        total.textContent = allReadings.length;
+        popEl(total);
+
+        document.getElementById('reading-count-badge').textContent =
+          allReadings.length + ' readings';
+
+        showToast(
+          'New reading on-chain!',
+          `${parseFloat(r.tempC).toFixed(2)}°C — block #${r.block || '?'}`
+        );
+      };
+
+      es.onerror = () => {
+        sseConnected = false;
+        document.getElementById('status-dot').className = 'status-dot error';
+        document.getElementById('status-text').textContent = 'Disconnected';
+        // Retry
+        setTimeout(connectSSE, 3000);
+      };
+    }
+
+    // ─── Poll /status ────────────────────────────────────────────────────────
+
+    async function fetchStatus() {
+      try {
+        const res  = await fetch('/status');
+        statusInfo = await res.json();
+
+        document.getElementById('stat-block').textContent  = '#' + statusInfo.currentBlock;
+        document.getElementById('stat-device').textContent = statusInfo.deviceId || '---';
+        document.getElementById('stat-contract').textContent =
+          statusInfo.contract
+            ? statusInfo.contract.slice(0,8) + '…' + statusInfo.contract.slice(-6)
+            : '';
+
+        document.getElementById('info-contract').textContent = statusInfo.contract || '---';
+        document.getElementById('info-signer').textContent   = statusInfo.signer   || '---';
+        document.getElementById('info-device').textContent   = statusInfo.deviceId || '---';
+      } catch (_) { /* relay not ready yet */ }
+    }
+
+    // ─── Simulator (for demo without physical Pico W) ─────────────────────────
+
+    function toggleSimulator() {
+      const btn = document.getElementById('sim-btn');
+      if (isSimRunning) {
+        clearInterval(simulatorInt);
+        isSimRunning = false;
+        btn.innerHTML = '▶ Simulate Pico W';
+        btn.classList.remove('running');
+      } else {
+        isSimRunning = true;
+        btn.innerHTML = '⏹ Stop Simulator';
+        btn.classList.add('running');
+        sendSimReading(); // immediate first
+        simulatorInt = setInterval(sendSimReading, 5000);
+      }
+    }
+
+    async function sendSimReading() {
+      // Simulate realistic room temp with small variation
+      const base = 24 + (Math.random() * 8 - 4);    // 20–28°C range
+      const noise = (Math.random() - 0.5) * 0.6;
+      const temp = parseFloat((base + noise).toFixed(2));
+
+      try {
+        await fetch('/reading', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            temperature: temp,
+            unit: 'C',
+            device_id: statusInfo.deviceId || 'pico-w-001',
+          }),
+        });
+      } catch (e) {
+        console.warn('Simulator: relay not reachable', e.message);
+      }
+    }
+
+    // ─── Boot ─────────────────────────────────────────────────────────────────
+
+    fetchStatus();
+    setInterval(fetchStatus, 5000);
+    connectSSE();
+  </script>
+</body>
+</html>
