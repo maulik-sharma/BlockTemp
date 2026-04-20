@@ -26,7 +26,7 @@ PASSWORD = "PASSWORD"    # ← change this
 # ─── Relay Server ─────────────────────────────────────────────────────────────
 # Set this to your PC's local IP (the machine running relay/server.js)
 # Find it with: ipconfig (Windows) or ip addr (Linux/Mac)
-RELAY_URL   = "http://10.10.10.26:3000/reading"   # ← change IP
+RELAY_URL   = "http://10.10.10.27:3000/reading"   # ← change IP
 DEVICE_ID   = "pico-w-001"
 INTERVAL_S  = 10    # seconds between readings
 
@@ -86,7 +86,7 @@ def read_temperature_celsius():
     raw       = total / NUM_SAMPLES
     voltage   = (raw / ADC_MAX) * ADC_REF_VOLTAGE
     temp_c    = voltage * 100
-    return temp_c
+    return temp_c - 10
 
 
 def celsius_to_fahrenheit(c):
