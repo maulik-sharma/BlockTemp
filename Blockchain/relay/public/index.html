@@ -223,12 +223,12 @@
     /* ── Main content grid ─────────────────────────────────── */
     .content-grid {
       display: grid;
-      grid-template-columns: 1fr 420px;
+      grid-template-columns: minmax(0, 1fr) 420px;
       gap: 24px;
     }
 
     @media (max-width: 1000px) {
-      .content-grid { grid-template-columns: 1fr; }
+      .content-grid { grid-template-columns: minmax(0, 1fr); }
     }
 
     /* ── Panel base ──────────────────────────────────────────── */
